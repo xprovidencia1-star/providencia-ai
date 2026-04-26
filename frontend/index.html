@@ -83,6 +83,23 @@
         .msg-bot p { margin-bottom: 8px; }
         .msg-bot p:last-child { margin-bottom: 0; }
         
+        /* Premium Tables */
+        .msg-bot table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.9rem; }
+        .msg-bot th { background: rgba(251, 191, 36, 0.2); color: #fbbf24; padding: 10px; border: 1px solid rgba(251, 191, 36, 0.3); text-align: left; }
+        .msg-bot td { padding: 10px; border: 1px solid rgba(255, 255, 255, 0.1); }
+        .msg-bot tr:nth-child(even) { background: rgba(255, 255, 255, 0.03); }
+
+        /* Mic Pulse */
+        @keyframes pulse-mic {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .recording {
+            animation: pulse-mic 1.5s infinite;
+            color: #ef4444 !important;
+        }
+        
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
@@ -136,6 +153,9 @@
                 </div>
             </div>
             <div class="flex gap-2">
+                <button onclick="toggleSpeech()" id="speaker-btn" class="text-slate-400 hover:text-blue-400 transition-colors p-2" title="Silenciar asistente de voz">
+                    <i class="fas fa-volume-up"></i>
+                </button>
                 <button onclick="downloadDrive()" class="text-slate-400 hover:text-green-400 transition-colors p-2" title="Descargar documentos del Drive">
                     <i class="fab fa-google-drive"></i>
                 </button>
@@ -153,6 +173,13 @@
         <!-- Input Area -->
         <div class="p-4 bg-slate-900/60 border-t border-yellow-500/30">
             <form id="chat-form" class="flex gap-2 relative">
+                <button 
+                    type="button" id="mic-btn"
+                    class="text-slate-400 hover:text-red-400 transition-colors px-3 flex items-center justify-center rounded-xl bg-slate-800"
+                    title="Dictar por voz"
+                >
+                    <i class="fas fa-microphone"></i>
+                </button>
                 <input 
                     type="text" 
                     id="user-input" 
@@ -288,37 +315,103 @@
 
 
         /* ==========================================
-           CHAT LOGIC
+           CHAT LOGIC (10/10 OPTIMIZED)
            ========================================== */
         const chatForm = document.getElementById('chat-form');
         const userInput = document.getElementById('user-input');
         const chatHistory = document.getElementById('chat-history');
         const statusText = document.getElementById('status-text');
         const sendBtn = document.getElementById('send-btn');
+        const micBtn = document.getElementById('mic-btn');
+        const speakerBtn = document.getElementById('speaker-btn');
 
         marked.setOptions({ breaks: true, gfm: true });
 
         const DEFAULT_MSG = "¡Hola! Soy tu asistente conectado a la base de datos de Providencia. ¿Qué deseas consultar hoy sobre nuestros documentos?";
+        let isSpeechEnabled = true;
+        let conversationHistory = [];
 
+        // --- 1. PING AUTO-DESPERTAR ---
+        fetch(BACKEND_URL + "/").catch(e => console.log("Ping enviado"));
+
+        // --- 2. ASISTENTE DE VOZ (MICROFONO) ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = null;
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.lang = 'es-VE';
+            recognition.interimResults = false;
+            
+            recognition.onstart = () => {
+                micBtn.classList.add('recording');
+                userInput.placeholder = "Escuchando...";
+            };
+            
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                userInput.value = transcript;
+                chatForm.dispatchEvent(new Event('submit'));
+            };
+            
+            recognition.onend = () => {
+                micBtn.classList.remove('recording');
+                userInput.placeholder = "Escribe tu consulta aquí...";
+            };
+            
+            micBtn.addEventListener('click', () => {
+                if (micBtn.classList.contains('recording')) {
+                    recognition.stop();
+                } else {
+                    recognition.start();
+                }
+            });
+        } else {
+            micBtn.style.display = 'none';
+        }
+
+        // --- 3. LECTURA DE VOZ (PARLANTE) ---
+        function toggleSpeech() {
+            isSpeechEnabled = !isSpeechEnabled;
+            speakerBtn.innerHTML = isSpeechEnabled ? '<i class="fas fa-volume-up"></i>' : '<i class="fas fa-volume-mute text-red-400"></i>';
+            if(!isSpeechEnabled) window.speechSynthesis.cancel();
+        }
+
+        function speakText(text) {
+            if(!isSpeechEnabled || !window.speechSynthesis) return;
+            window.speechSynthesis.cancel();
+            const cleanText = text.replace(/[*_#`\[\]]/g, ''); 
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            utterance.lang = 'es-VE';
+            utterance.rate = 1.05;
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // --- 4. GESTIÓN DE HISTORIAL ---
         function initChat() {
             const savedHTML = sessionStorage.getItem('providenciaSimpleChat');
-            if (savedHTML) {
+            const savedHistory = sessionStorage.getItem('providenciaHistory');
+            
+            if (savedHTML && savedHistory) {
                 chatHistory.innerHTML = savedHTML;
+                conversationHistory = JSON.parse(savedHistory);
             } else {
-                addMessage(DEFAULT_MSG, 'bot');
+                addMessage(DEFAULT_MSG, 'bot', true, false);
             }
             scrollToBottom();
         }
 
         function saveChat() {
             sessionStorage.setItem('providenciaSimpleChat', chatHistory.innerHTML);
+            sessionStorage.setItem('providenciaHistory', JSON.stringify(conversationHistory));
         }
 
         function clearChat() {
             if(confirm("¿Borrar historial?")) {
                 chatHistory.innerHTML = '';
+                conversationHistory = [];
                 sessionStorage.removeItem('providenciaSimpleChat');
-                addMessage(DEFAULT_MSG, 'bot');
+                sessionStorage.removeItem('providenciaHistory');
+                addMessage(DEFAULT_MSG, 'bot', true, false);
             }
         }
 
@@ -330,13 +423,39 @@
             chatHistory.scrollTop = chatHistory.scrollHeight;
         }
 
-        function addMessage(text, sender, isMarkdown = true) {
+        // --- 5. RENDERIZADO Y EFECTO MÁQUINA DE ESCRIBIR ---
+        function addMessage(text, sender, isMarkdown = true, animate = false) {
             const div = document.createElement('div');
             div.className = `message-bubble ${sender === 'user' ? 'msg-user' : 'msg-bot'}`;
-            div.innerHTML = isMarkdown && sender === 'bot' ? marked.parse(text) : text;
             chatHistory.appendChild(div);
-            scrollToBottom();
-            saveChat();
+            
+            if (sender !== 'user' && text !== DEFAULT_MSG) {
+                conversationHistory.push({ role: 'bot', content: text });
+            } else if (sender === 'user') {
+                conversationHistory.push({ role: 'user', content: text });
+            }
+
+            if (animate && sender === 'bot') {
+                let i = 0;
+                div.innerHTML = '';
+                const speed = 15;
+                const typeWriter = () => {
+                    if (i <= text.length) {
+                        div.innerHTML = marked.parse(text.substring(0, i));
+                        i += 3; // Muestra de 3 en 3 caracteres para mayor fluidez
+                        scrollToBottom();
+                        setTimeout(typeWriter, speed);
+                    } else {
+                        saveChat();
+                    }
+                };
+                typeWriter();
+                speakText(text);
+            } else {
+                div.innerHTML = isMarkdown && sender === 'bot' ? marked.parse(text) : text;
+                scrollToBottom();
+                saveChat();
+            }
         }
 
         function showTyping() {
@@ -353,12 +472,13 @@
             if (el) el.remove();
         }
 
+        // --- 6. ENVÍO AL SERVIDOR ---
         chatForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const text = userInput.value.trim();
             if(!text) return;
 
-            addMessage(text, 'user', false);
+            addMessage(text, 'user', false, false);
             userInput.value = '';
             
             statusText.textContent = "CONSULTANDO DRIVE...";
@@ -375,19 +495,19 @@
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text })
+                    body: JSON.stringify({ message: text, history: conversationHistory.slice(-5) })
                 });
 
                 if(!response.ok) throw new Error("Error del servidor");
                 
                 const data = await response.json();
                 removeTyping();
-                addMessage(data.reply, 'bot');
+                addMessage(data.reply, 'bot', true, true);
 
             } catch (error) {
                 console.error(error);
                 removeTyping();
-                addMessage("⚠️ Error de conexión con el backend. Verifica que la URL de Render esté configurada correctamente en el código.", 'bot');
+                addMessage("⚠️ Error de conexión con el backend.", 'bot', true, false);
             } finally {
                 statusText.textContent = "CONECTADO AL DRIVE";
                 statusText.classList.remove('animate-pulse');

@@ -2,6 +2,7 @@ import os
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from typing import List, Dict, Optional
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from pinecone import Pinecone
@@ -30,6 +31,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 class ChatRequest(BaseModel):
     message: str
+    history: Optional[List[Dict[str, str]]] = []
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
@@ -69,6 +71,14 @@ async def chat_endpoint(request: ChatRequest):
         
         context = "\n\n".join(context_texts)
 
+        history_text = ""
+        if request.history:
+            history_text = "\n\n--- HISTORIAL RECIENTE ---"
+            for msg in request.history[-5:]:
+                role = "Usuario" if msg["role"] == "user" else "Segurito"
+                history_text += f"\n{role}: {msg['content']}"
+            history_text += "\n--------------------------"
+
         # 3. Generar respuesta usando Gemini (Súper rápido)
         prompt = f"""
 Eres "Segurito", el asistente experto en Seguridad Industrial de Providencia Pro, creado por el Ing. Moisés Tortolero.
@@ -79,9 +89,9 @@ DIRECTRICES:
 2. Legalidad: Cita artículos específicos si aplican de acuerdo al contexto.
 
 Contexto de la empresa (documentos):
-{context}
+{context}{history_text}
 
-Pregunta del usuario: {user_message}
+Pregunta actual del usuario: {user_message}
 Respuesta:
 """
         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
