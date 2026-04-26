@@ -1,11 +1,11 @@
 import os
-import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from pinecone import Pinecone
+import google.generativeai as genai
 
 load_dotenv()
 
@@ -28,6 +28,8 @@ else:
     pinecone_index = None
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 class ChatRequest(BaseModel):
     message: str
@@ -43,19 +45,13 @@ async def chat_endpoint(request: ChatRequest):
     user_message = request.message
 
     try:
-        # 1. Vectorizar la consulta con Gemini (Usando la clave del dueño del servidor)
-        embed_url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={GEMINI_API_KEY}"
-        embed_payload = {
-            "model": "models/text-embedding-004",
-            "content": {"parts": [{"text": user_message}]},
-            "taskType": "RETRIEVAL_QUERY"
-        }
-        
-        async with httpx.AsyncClient() as client:
-            embed_res = await client.post(embed_url, json=embed_payload, timeout=10.0)
-            if embed_res.status_code != 200:
-                raise Exception(f"Error al vectorizar: {embed_res.text}")
-            query_vector = embed_res.json()["embedding"]["values"]
+        # 1. Vectorizar la consulta con el SDK oficial de Gemini
+        embedding_result = genai.embed_content(
+            model="models/text-embedding-004",
+            content=user_message,
+            task_type="retrieval_query"
+        )
+        query_vector = embedding_result['embedding']
 
         # 2. Buscar contexto en Pinecone (Google Drive docs)
         search_results = pinecone_index.query(
@@ -79,7 +75,7 @@ async def chat_endpoint(request: ChatRequest):
                 history_text += f"\n{role}: {msg['content']}"
             history_text += "\n--------------------------"
 
-        # 3. Generar respuesta usando Gemini (Súper rápido)
+        # 3. Generar respuesta usando Gemini (Súper rápido y Nativo)
         prompt = f"""
 Eres "Segurito", el asistente experto en Seguridad Industrial de Providencia Pro, creado por el Ing. Moisés Tortolero.
 Tu misión es educar a estudiantes y asesorar a ingenieros con base legal venezolana.
@@ -94,18 +90,9 @@ Contexto de la empresa (documentos):
 Pregunta actual del usuario: {user_message}
 Respuesta:
 """
-        gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-        gemini_payload = {
-            "contents": [{"parts": [{"text": prompt}]}]
-        }
-
-        async with httpx.AsyncClient() as client:
-            gen_res = await client.post(gemini_url, json=gemini_payload, timeout=20.0)
-            if gen_res.status_code != 200:
-                raise Exception(f"Error de Gemini: {gen_res.text}")
-            
-            response_data = gen_res.json()
-            reply_text = response_data["candidates"][0]["content"]["parts"][0]["text"]
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        response = model.generate_content(prompt)
+        reply_text = response.text
 
         return {"reply": reply_text}
 
