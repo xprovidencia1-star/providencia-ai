@@ -44,8 +44,18 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
+    global pinecone_index
     if not pinecone_index:
-        raise HTTPException(status_code=500, detail="Falta la API key de Pinecone en el servidor.")
+        # Intentar reconectar por si el índice se acaba de crear
+        try:
+            indexes = pc.list_indexes().names()
+            if indexes:
+                pinecone_index = pc.Index(indexes[0])
+        except:
+            pass
+            
+    if not pinecone_index:
+        raise HTTPException(status_code=500, detail="Base de datos vacía. Visita /ingest primero.")
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="Falta la GEMINI_API_KEY en el servidor para generar vectores.")
 
@@ -105,6 +115,72 @@ Respuesta:
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/ingest")
+async def ingest_endpoint():
+    import uuid
+    import gdown
+    from pinecone import ServerlessSpec
+    
+    if not GEMINI_API_KEY or not PINECONE_API_KEY:
+        return {"error": "Faltan las API keys en Render"}
+        
+    try:
+        # 1. Crear índice si no existe
+        indexes = pc.list_indexes().names()
+        index_name = "providencia-index"
+        if index_name not in indexes:
+            pc.create_index(
+                name=index_name,
+                dimension=768,
+                metric='cosine',
+                spec=ServerlessSpec(cloud='aws', region='us-east-1')
+            )
+        
+        index = pc.Index(index_name)
+        
+        # 2. Descargar Drive
+        import shutil
+        DOWNLOAD_DIR = "/tmp/docs"
+        if os.path.exists(DOWNLOAD_DIR):
+            shutil.rmtree(DOWNLOAD_DIR)
+        os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+        
+        DRIVE_URL = "https://drive.google.com/drive/folders/1TkpK2iRzq7n47FmZVBEApg6uA7GqLplX?usp=sharing"
+        gdown.download_folder(DRIVE_URL, output=DOWNLOAD_DIR, use_cookies=False)
+        
+        # 3. Procesar
+        vectors = []
+        for filename in os.listdir(DOWNLOAD_DIR):
+            if filename.endswith('.txt'):
+                with open(os.path.join(DOWNLOAD_DIR, filename), 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                chunks = [c.strip() for c in content.split('\n\n') if len(c.strip()) > 50]
+                
+                for chunk in chunks:
+                    result = genai.embed_content(
+                        model="models/text-embedding-004",
+                        content=chunk,
+                        task_type="retrieval_document"
+                    )
+                    vectors.append({
+                        "id": str(uuid.uuid4()),
+                        "values": result['embedding'],
+                        "metadata": {"source": filename, "text": chunk}
+                    })
+                    
+        # 4. Subir a Pinecone
+        if vectors:
+            for i in range(0, len(vectors), 100):
+                index.upsert(vectors=vectors[i:i+100])
+                
+        global pinecone_index
+        pinecone_index = index
+                
+        return {"status": f"¡Éxito! Se procesaron {len(vectors)} fragmentos de texto en la IA."}
+        
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/")
 def read_root():
