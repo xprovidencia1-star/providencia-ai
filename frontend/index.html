@@ -136,8 +136,8 @@
                 </div>
             </div>
             <div class="flex gap-2">
-                <button onclick="downloadChat()" class="text-slate-400 hover:text-green-400 transition-colors p-2" title="Descargar conversación">
-                    <i class="fas fa-file-download"></i>
+                <button onclick="downloadDrive()" class="text-slate-400 hover:text-green-400 transition-colors p-2" title="Descargar documentos del Drive">
+                    <i class="fab fa-google-drive"></i>
                 </button>
                 <button onclick="clearChat()" class="text-slate-400 hover:text-red-400 transition-colors p-2" title="Borrar historial">
                     <i class="fas fa-trash-alt"></i>
@@ -173,10 +173,7 @@
     </div>
 
     <script>
-        // -----------------------------------------------------------------------------------------
-        // ⚠️ ATENCIÓN: CAMBIA ESTO POR TU URL DE RENDER PARA CONECTAR AL BACKEND Y GOOGLE DRIVE ⚠️
         const BACKEND_URL = "https://providencia-ai.onrender.com"; 
-        // -----------------------------------------------------------------------------------------
 
         /* ==========================================
            NEURAL NETWORK CANVAS ANIMATION
@@ -304,7 +301,7 @@
         const DEFAULT_MSG = "¡Hola! Soy tu asistente conectado a la base de datos de Providencia. ¿Qué deseas consultar hoy sobre nuestros documentos?";
 
         function initChat() {
-            const savedHTML = localStorage.getItem('providenciaSimpleChat');
+            const savedHTML = sessionStorage.getItem('providenciaSimpleChat');
             if (savedHTML) {
                 chatHistory.innerHTML = savedHTML;
             } else {
@@ -314,38 +311,19 @@
         }
 
         function saveChat() {
-            localStorage.setItem('providenciaSimpleChat', chatHistory.innerHTML);
+            sessionStorage.setItem('providenciaSimpleChat', chatHistory.innerHTML);
         }
 
         function clearChat() {
             if(confirm("¿Borrar historial?")) {
                 chatHistory.innerHTML = '';
-                localStorage.removeItem('providenciaSimpleChat');
+                sessionStorage.removeItem('providenciaSimpleChat');
                 addMessage(DEFAULT_MSG, 'bot');
             }
         }
 
-        function downloadChat() {
-            let content = "--- HISTORIAL DE CHAT: RED NEURONAL PROVIDENCIA ---\n\n";
-            const messages = document.querySelectorAll('.message-bubble');
-            
-            if(messages.length <= 1) {
-                alert("Primero haz algunas consultas antes de descargar.");
-                return;
-            }
-
-            messages.forEach(msg => {
-                let cleanText = msg.innerText.replace(/\n\n/g, '\n'); 
-                let sender = msg.classList.contains('msg-bot') ? 'PROVIDENCIA AI 🦫' : 'USUARIO 👤';
-                content += `[${sender}]:\n${cleanText}\n\n-------------------\n\n`;
-            });
-            
-            const date = new Date().toISOString().slice(0,10);
-            const blob = new Blob([content], { type: 'text/plain' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = `asesoria_providencia_${date}.txt`;
-            a.click();
+        function downloadDrive() {
+            window.open("https://drive.google.com/drive/folders/1TkpK2iRzq7n47FmZVBEApg6uA7GqLplX?usp=sharing", "_blank");
         }
 
         function scrollToBottom() {

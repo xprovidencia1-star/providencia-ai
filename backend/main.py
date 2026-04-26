@@ -69,7 +69,7 @@ async def chat_endpoint(request: ChatRequest):
         
         context = "\n\n".join(context_texts)
 
-        # 3. Generar respuesta usando Pollinations AI (100% Gratis, sin claves)
+        # 3. Generar respuesta usando Gemini (Súper rápido)
         prompt = f"""
 Eres "Segurito", el asistente experto en Seguridad Industrial de Providencia Pro, creado por el Ing. Moisés Tortolero.
 Tu misión es educar a estudiantes y asesorar a ingenieros con base legal venezolana.
@@ -84,23 +84,18 @@ Contexto de la empresa (documentos):
 Pregunta del usuario: {user_message}
 Respuesta:
 """
-        pollinations_url = "https://text.pollinations.ai/openai/chat/completions"
-        pollinations_payload = {
-            "messages": [
-                {"role": "system", "content": "Eres un asistente estricto de seguridad industrial de Venezuela."},
-                {"role": "user", "content": prompt}
-            ],
-            "model": "openai",
-            "temperature": 0.7
+        gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        gemini_payload = {
+            "contents": [{"parts": [{"text": prompt}]}]
         }
 
         async with httpx.AsyncClient() as client:
-            gen_res = await client.post(pollinations_url, json=pollinations_payload, timeout=30.0)
+            gen_res = await client.post(gemini_url, json=gemini_payload, timeout=20.0)
             if gen_res.status_code != 200:
-                raise Exception(f"Error de Pollinations: {gen_res.text}")
+                raise Exception(f"Error de Gemini: {gen_res.text}")
             
             response_data = gen_res.json()
-            reply_text = response_data["choices"][0]["message"]["content"]
+            reply_text = response_data["candidates"][0]["content"]["parts"][0]["text"]
 
         return {"reply": reply_text}
 
