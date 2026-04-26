@@ -20,12 +20,19 @@ app.add_middleware(
 )
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "providencia-index")
+pinecone_index = None
+
 if PINECONE_API_KEY:
-    pc = Pinecone(api_key=PINECONE_API_KEY)
-    pinecone_index = pc.Index(PINECONE_INDEX_NAME)
-else:
-    pinecone_index = None
+    try:
+        pc = Pinecone(api_key=PINECONE_API_KEY)
+        indexes = pc.list_indexes().names()
+        if indexes:
+            # Seleccionar automáticamente el primer índice de la cuenta
+            pinecone_index = pc.Index(indexes[0])
+        else:
+            print("Advertencia: No hay ningún índice creado en tu cuenta de Pinecone.")
+    except Exception as e:
+        print(f"Error al conectar con Pinecone: {e}")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
